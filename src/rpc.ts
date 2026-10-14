@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Public RPC contract for the Cofferdam Self attester Worker.
+ * Public RPC contract for the Cofferdam attester Worker: the Self bind
+ * co-sign (`signBind`) and the passkey ceremony co-sign (`signCeremony`).
  *
  * This file is the source of truth for the wire shape consumers see over a
  * Cloudflare service binding. `cofferdam-api/src/services/attester.ts` keeps
@@ -81,6 +82,49 @@ export interface SignBindResponse {
   readonly celo: CeloGateReceipt;
 }
 
+/** Ceremony actions, named as `CofferdamAccount4337.ACTION_*` hash them. */
+export type CeremonyAction = 'enroll-first-high' | 'replace-partner';
+
+/**
+ * Request payload for `signCeremony` (decision 0016). Every field mirrors an
+ * argument of `CofferdamAccount4337.ceremonyHash`; `cofferdam-api` reads the
+ * account and derives them, this Worker checks the chain pin and the window
+ * and signs. Bigints travel as decimal strings (see above).
+ */
+export interface SignCeremonyRequest {
+  /** Must equal the attester's pinned `BASE_CHAIN_ID`, otherwise `WRONG_CHAIN_ID`. */
+  readonly chainId: string;
+  /** The `CofferdamAccount4337` the ceremony is for. */
+  readonly account: Hex;
+  readonly action: CeremonyAction;
+  /** `keccak256(newConfig)` of the authority config the account will store. */
+  readonly newKeyHash: Hex;
+  /** The signing Partner authority's `partnerId`, or 32 zero bytes for Managed. */
+  readonly partnerId: Hex;
+  /** The account's current `ceremonyNonce`. */
+  readonly nonce: string;
+  /** Validity window (unix seconds, `uint48`); at most one hour wide. */
+  readonly notBefore: string;
+  readonly expiry: string;
+}
+
+/** Response from `signCeremony`: the `CeremonyAttestation` the account takes. */
+export interface SignCeremonyResponse {
+  /** Recovered signer address (must be listed in `CofferdamCeremonyAttesterRegistry`). */
+  readonly attesterAddress: Hex;
+  /** The 32-byte hash signed (equals `CofferdamAccount4337.ceremonyHash(...)`). */
+  readonly messageHash: Hex;
+  /** 65-byte EIP-191 personal_sign signature. */
+  readonly signature: Hex;
+  /** Echoed for caller-side audit and for building the on-chain struct. */
+  readonly chainId: string;
+  readonly account: Hex;
+  readonly action: CeremonyAction;
+  readonly nonce: string;
+  readonly notBefore: string;
+  readonly expiry: string;
+}
+
 /**
  * The full RPC surface. `extends Rpc.WorkerEntrypointBranded` satisfies the
  * generic constraint on Cloudflare's `Service<T>` helper; the brand is purely
@@ -88,4 +132,5 @@ export interface SignBindResponse {
  */
 export interface AttesterRpc extends Rpc.WorkerEntrypointBranded {
   signBind(req: SignBindRequest): Promise<SignBindResponse>;
+  signCeremony(req: SignCeremonyRequest): Promise<SignCeremonyResponse>;
 }

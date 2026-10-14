@@ -4,12 +4,14 @@
 /**
  * Cofferdam Self attester Worker — entry point.
  *
- * Exposes one RPC method, `signBind`, that returns an EIP-191 personal_sign
- * over `NullifierRegistry.attesterMessageHash(...)` — but only after the Celo
- * gate has confirmed the proof's identity-commitment root, OFAC roots and
- * date against Self's own registry (decision 0004). This Worker is the only
- * place in the Cofferdam stack where the SelfAttester private key is ever
- * deserialised; every other surface reaches it through this binding.
+ * Exposes two RPC methods. `signBind` returns an EIP-191 personal_sign over
+ * `NullifierRegistry.attesterMessageHash(...)` — but only after the Celo gate
+ * has confirmed the proof's identity-commitment root, OFAC roots and date
+ * against Self's own registry (decision 0004). `signCeremony` co-signs a
+ * passkey ceremony for `CofferdamAccount4337` (decision 0016) with a separate
+ * key. This Worker is the only place in the Cofferdam stack where either
+ * private key is ever deserialised; every other surface reaches it through
+ * this binding.
  *
  * Defense layers:
  *   1. `workers_dev: false` + zero routes → no public ingress.
@@ -38,7 +40,14 @@ import {
   type CeloReads,
 } from './celoGate.js';
 import type { Env } from './env.js';
-import type { AttesterRpc, SignBindRequest, SignBindResponse } from './rpc.js';
+import { prepareCeremonyRequest, signCeremonyAttestation } from './ceremony.js';
+import type {
+  AttesterRpc,
+  SignBindRequest,
+  SignBindResponse,
+  SignCeremonyRequest,
+  SignCeremonyResponse,
+} from './rpc.js';
 import { signBindAttestation } from './sign.js';
 
 /** One viem client per isolate per RPC URL; rebuilt only if the var changes. */
@@ -50,12 +59,9 @@ function celoReadsFor(rpcUrl: string): CeloReads {
   return celoReadsCache.reads;
 }
 
-function assertPrivateKey(pk: string): asserts pk is Hex {
+function assertPrivateKey(pk: string, name = 'ATTESTER_PRIVATE_KEY'): asserts pk is Hex {
   if (!isHex(pk) || pk.length !== 66 /* 0x + 64 hex chars */) {
-    throw new AttesterError(
-      'BAD_ATTESTER_KEY',
-      'ATTESTER_PRIVATE_KEY secret is missing or malformed (expected 0x + 64 hex chars)',
-    );
+    throw new AttesterError('BAD_ATTESTER_KEY', `${name} secret is missing or malformed (expected 0x + 64 hex chars)`);
   }
 }
 
@@ -77,6 +83,51 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
     );
     const celo = await this.#gateOnCelo(prepared);
     return this.#signPrepared(prepared, celo);
+  }
+
+  /**
+   * Co-sign a passkey ceremony (decision 0016): the first High on a Partner or
+   * Managed account, or a pre-High Partner re-key. `cofferdam-api` has already
+   * read the account (no High yet, current `ceremonyNonce`, the new key's
+   * assertion over `firstHighChallenge`); this Worker pins the chain, bounds
+   * the window, reproduces `ceremonyHash` and signs with the ceremony key,
+   * which is never the Self bind key.
+   */
+  async signCeremony(req: SignCeremonyRequest): Promise<SignCeremonyResponse> {
+    const prepared = prepareCeremonyRequest({ chainIdStr: this.env.BASE_CHAIN_ID }, req);
+    assertPrivateKey(this.env.CEREMONY_ATTESTER_PRIVATE_KEY, 'CEREMONY_ATTESTER_PRIVATE_KEY');
+    const signed = await signCeremonyAttestation(this.env.CEREMONY_ATTESTER_PRIVATE_KEY, prepared);
+
+    // The new key hash is a hash of a public key, the partner id is public
+    // on the account; nothing here links a person to the account.
+    console.log(
+      JSON.stringify({
+        kind: 'attester.signCeremony',
+        environment: this.env.ENVIRONMENT,
+        chainId: prepared.chainIdStr,
+        account: prepared.account,
+        action: prepared.actionName,
+        newKeyHash: prepared.newKeyHash,
+        partnerId: prepared.partnerId,
+        nonce: prepared.nonce.toString(),
+        notBefore: prepared.notBefore.toString(),
+        expiry: prepared.expiry.toString(),
+        attesterAddress: signed.attesterAddress,
+        messageHash: signed.messageHash,
+      }),
+    );
+
+    return {
+      attesterAddress: signed.attesterAddress,
+      messageHash: signed.messageHash,
+      signature: signed.signature,
+      chainId: prepared.chainIdStr,
+      account: prepared.account,
+      action: prepared.actionName,
+      nonce: prepared.nonce.toString(),
+      notBefore: prepared.notBefore.toString(),
+      expiry: prepared.expiry.toString(),
+    };
   }
 
   /** Read and validate the Celo pins. Malformed vars are operator errors, not caller errors. */

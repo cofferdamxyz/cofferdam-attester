@@ -66,4 +66,13 @@ export interface Env {
    * a viem account, then dropped.
    */
   ATTESTER_PRIVATE_KEY: string;
+
+  /**
+   * 0x-prefixed 32-byte secp256k1 private key of the ceremony co-signer
+   * (decision 0016). Its address must be listed in
+   * `CofferdamCeremonyAttesterRegistry`, the registry every account from the
+   * factory pins; it is never the Self bind key above, so the two lists never
+   * share a signer. Read once per `signCeremony`, never logged.
+   */
+  CEREMONY_ATTESTER_PRIVATE_KEY: string;
 }

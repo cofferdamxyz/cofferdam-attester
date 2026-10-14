@@ -60,6 +60,45 @@ the prefix over Workers RPC. Request-shape codes come from `src/bind.ts`
 Source of truth: `src/rpc.ts`. `cofferdam-api/src/services/attester.ts` keeps a
 byte-compatible copy; change both in the same commit.
 
+### `signCeremony` — the passkey ceremony co-sign (decision 0016)
+
+```ts
+interface AttesterRpc {
+  signCeremony(req: {
+    chainId: string;                 // must equal BASE_CHAIN_ID
+    account: `0x${string}`;          // the CofferdamAccount4337
+    action: 'enroll-first-high' | 'replace-partner';
+    newKeyHash: `0x${string}`;       // keccak256(newConfig)
+    partnerId: `0x${string}`;        // Partner config word 3, or 32 zero bytes for Managed
+    nonce: string;                   // the account's ceremonyNonce
+    notBefore: string;               // unix seconds, uint48
+    expiry: string;                  // at most one hour after notBefore
+  }): Promise<SignCeremonyResponse>;
+}
+
+type SignCeremonyResponse = {
+  attesterAddress: `0x${string}`;   // listed in CofferdamCeremonyAttesterRegistry
+  messageHash:     `0x${string}`;   // == CofferdamAccount4337.ceremonyHash(...)
+  signature:       `0x${string}`;   // 65 bytes, EIP-191: CeremonyAttestation.signature
+  chainId: string; account: `0x${string}`; action: string;
+  nonce: string; notBefore: string; expiry: string;
+};
+```
+
+`CofferdamAccount4337.enrollFirstHigh` (the first High passkey on a Partner or
+Managed account) and `replacePartnerAuthority` consume this signature next to
+the account's own authority signature and the new key's assertion; it never
+moves anything on its own. The gate (a deployed Cofferdam account with no
+High yet, the new key's assertion over `firstHighChallenge(nonce)`, the
+pinned High module) runs in `cofferdam-api` (`POST /v1/ceremony/first-high`),
+which has the Base reads; this Worker pins the chain, bounds the window to an
+hour, reproduces `ceremonyHash` (`src/ceremony.ts`, known-answer vector from
+the contract in `test/ceremony.test.ts`) and signs with
+`CEREMONY_ATTESTER_PRIVATE_KEY`, a separate secret from the Self bind key so
+the two registries never share a signer. Codes: `WRONG_CHAIN_ID`,
+`BAD_ACCOUNT`, `BAD_CEREMONY_ACTION`, `BAD_CEREMONY_FIELD`,
+`BAD_CEREMONY_WINDOW`, `BAD_ATTESTER_KEY`.
+
 ### `userContextData` — why signal 20 is not the address
 
 The `vc_and_disclose` circuit's `userIdentifier` public signal (index 20) is
@@ -159,6 +198,10 @@ yarn install
 # will prompt; paste from 1Password. Encrypted at rest in Cloudflare's
 # secret store; never visible in dashboards or wrangler tail.
 yarn wrangler secret put ATTESTER_PRIVATE_KEY
+
+# The ceremony co-sign key (decision 0016): a different key, listed in
+# CofferdamCeremonyAttesterRegistry by its owner (`addAttester`).
+yarn wrangler secret put CEREMONY_ATTESTER_PRIVATE_KEY
 
 # Deploy. workers_dev:false means there is no public URL; the only
 # way to reach this Worker is via the service binding declared on

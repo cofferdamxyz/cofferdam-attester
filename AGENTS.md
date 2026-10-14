@@ -14,7 +14,7 @@ decision 0004. There is no Cofferdam prover: Self proves in its own enclave.
 
 - yarn only; never `npm install`. `yarn test` (vitest) and `yarn typecheck`
   before a commit.
-- Secrets (`ATTESTER_PRIVATE_KEY`) enter only through `wrangler secret put`,
+- Secrets (`ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY`) enter only through `wrangler secret put`,
   never `wrangler.jsonc`, tests or docs. The deployment runs
   `ENVIRONMENT=staging`; `.dev.vars` sets `development` for `wrangler dev`.
 - Deploys run from the Mac with the workspace `.envrc` sourced (Cofferdam Inc.
