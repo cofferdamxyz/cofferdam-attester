@@ -55,7 +55,7 @@
     // key lives in TWO places a rotation must both update: the Cloudflare
     // secret (deployed) and .dev.vars (local `wrangler dev`). Rotate with
     // base-contracts/scripts/rotate-self-attester.ts.
-    "NULLIFIER_REGISTRY_ADDRESS": "0xC4931d4492a9E7124735dd040890BC2cc427505F",
+    "NULLIFIER_REGISTRY_ADDRESS": "0xF025204964A355D3125CF15Bd606B8CFc92FbDB6",
 
     // ── Celo bind gate ──────────────────────────────────────────
     // Self.xyz anchors its identity-commitment tree and OFAC roots on Celo
