@@ -82,6 +82,17 @@ export interface SignBindResponse {
   readonly celo: CeloGateReceipt;
 }
 
+/** Request payload for `signRebind` (decision 0022): a bind request plus the registry epoch. */
+export interface SignRebindRequest extends SignBindRequest {
+  /** `NullifierRegistry.rebindCount[nullifier]` as the API read it; decimal string. */
+  readonly epoch: string;
+}
+
+/** Response from `signRebind`: like a bind response, `messageHash` equals `rebindMessageHash`. */
+export interface SignRebindResponse extends SignBindResponse {
+  readonly epoch: string;
+}
+
 /** Ceremony actions, named as `CofferdamAccount4337.ACTION_*` hash them. */
 export type CeremonyAction = 'enroll-first-high' | 'replace-partner';
 
@@ -133,4 +144,5 @@ export interface SignCeremonyResponse {
 export interface AttesterRpc extends Rpc.WorkerEntrypointBranded {
   signBind(req: SignBindRequest): Promise<SignBindResponse>;
   signCeremony(req: SignCeremonyRequest): Promise<SignCeremonyResponse>;
+  signRebind(req: SignRebindRequest): Promise<SignRebindResponse>;
 }

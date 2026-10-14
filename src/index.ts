@@ -4,12 +4,13 @@
 /**
  * Cofferdam Self attester Worker — entry point.
  *
- * Exposes two RPC methods. `signBind` returns an EIP-191 personal_sign over
+ * Exposes three RPC methods. `signBind` returns an EIP-191 personal_sign over
  * `NullifierRegistry.attesterMessageHash(...)` — but only after the Celo gate
  * has confirmed the proof's identity-commitment root, OFAC roots and date
  * against Self's own registry (decision 0004). `signCeremony` co-signs a
  * passkey ceremony for `CofferdamAccount4337` (decision 0016) with a separate
- * key. This Worker is the only place in the Cofferdam stack where either
+ * key; `signRebind` co-signs a nullifier rebind (decision 0022) with the bind
+ * key over an epoch-bound message. This Worker is the only place in the Cofferdam stack where either
  * private key is ever deserialised; every other surface reaches it through
  * this binding.
  *
@@ -47,8 +48,10 @@ import type {
   SignBindResponse,
   SignCeremonyRequest,
   SignCeremonyResponse,
+  SignRebindRequest,
+  SignRebindResponse,
 } from './rpc.js';
-import { signBindAttestation } from './sign.js';
+import { signBindAttestation, signRebindAttestation } from './sign.js';
 
 /** One viem client per isolate per RPC URL; rebuilt only if the var changes. */
 let celoReadsCache: { rpcUrl: string; reads: CeloReads } | null = null;
@@ -83,6 +86,68 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
     );
     const celo = await this.#gateOnCelo(prepared);
     return this.#signPrepared(prepared, celo);
+  }
+
+  /**
+   * Gate and co-sign a rebind (decision 0022): the same request shape and
+   * Celo gate as a bind, signed over `rebindMessageHash` with the registry
+   * epoch the API read, so the signature is single-use and never a bind.
+   */
+  async signRebind(req: SignRebindRequest): Promise<SignRebindResponse> {
+    const prepared = prepareBindRequest(
+      {
+        chainIdStr: this.env.BASE_CHAIN_ID,
+        allowedRegistryRaw: this.env.NULLIFIER_REGISTRY_ADDRESS,
+      },
+      req,
+    );
+    if (typeof req.epoch !== 'string' || !/^\d+$/.test(req.epoch)) {
+      badRequest('BAD_EPOCH', 'epoch must be a non-negative decimal string');
+    }
+    const epoch = BigInt(req.epoch);
+    const celo = await this.#gateOnCelo(prepared);
+
+    assertPrivateKey(this.env.ATTESTER_PRIVATE_KEY);
+    const signed = await signRebindAttestation(this.env.ATTESTER_PRIVATE_KEY, {
+      chainId: prepared.chainId,
+      registry: prepared.registry,
+      account: prepared.account,
+      pubSignals: prepared.pubSignals,
+      epoch,
+    });
+    console.log(
+      JSON.stringify({
+        kind: 'attester.signRebind',
+        environment: this.env.ENVIRONMENT,
+        chainId: prepared.chainIdStr,
+        registry: prepared.registry,
+        account: prepared.account,
+        nullifier: prepared.nullifier.toString(),
+        epoch: epoch.toString(),
+        attesterAddress: signed.attesterAddress,
+        messageHash: signed.messageHash,
+        gate: 'celo',
+        merkleRoot: celo.merkleRoot.toString(),
+        proofDate: celo.proofDate,
+      }),
+    );
+    return {
+      attesterAddress: signed.attesterAddress,
+      messageHash: signed.messageHash,
+      signature: signed.signature,
+      chainId: prepared.chainIdStr,
+      registry: prepared.registry,
+      account: prepared.account,
+      userContextData: prepared.userContextData,
+      gate: 'celo',
+      celo: {
+        chainId: celo.chainId.toString(),
+        registry: celo.registry,
+        merkleRoot: celo.merkleRoot.toString(),
+        proofDate: celo.proofDate,
+      },
+      epoch: epoch.toString(),
+    };
   }
 
   /**

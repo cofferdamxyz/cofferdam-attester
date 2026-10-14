@@ -33,6 +33,7 @@ import {
   sha256,
   size,
   slice,
+  toBytes,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -169,4 +170,48 @@ export async function signBindAttestation(
     messageHash,
     signature,
   };
+}
+
+// ── Rebind (decision 0022) ────────────────────────────────────
+
+/** `keccak256("cofferdam-rebind-v1")`, the tag that separates a rebind co-sign from a bind. */
+export const REBIND_TAG: Hex = keccak256(toBytes('cofferdam-rebind-v1'));
+
+export interface RebindAttestationInputs extends BindAttestationInputs {
+  /** The registry's `rebindCount[nullifier]` the signature is bound to. */
+  readonly epoch: bigint;
+}
+
+/**
+ * Reproduces `NullifierRegistry.rebindMessageHash(newAccount, pubSignals, epoch)`:
+ * `keccak256(abi.encode(chainid, registry, REBIND_TAG, newAccount, pubSignals, epoch))`.
+ */
+export function rebindMessageHash(inputs: RebindAttestationInputs): Hex {
+  if (!isAddress(inputs.registry)) throw new Error(`registry is not a valid address: ${inputs.registry}`);
+  if (!isAddress(inputs.account)) throw new Error(`account is not a valid address: ${inputs.account}`);
+  if (inputs.pubSignals.length !== 21) throw new Error(`pubSignals length must be 21, got ${inputs.pubSignals.length}`);
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'uint256' },
+        { type: 'address' },
+        { type: 'bytes32' },
+        { type: 'address' },
+        { type: 'uint256[21]' },
+        { type: 'uint256' },
+      ],
+      [inputs.chainId, inputs.registry, REBIND_TAG, inputs.account, inputs.pubSignals as unknown as PubSignalsTuple, inputs.epoch],
+    ),
+  );
+}
+
+/** Sign a rebind co-sign with EIP-191 personal_sign over `rebindMessageHash`. */
+export async function signRebindAttestation(
+  privateKey: Hex,
+  inputs: RebindAttestationInputs,
+): Promise<SignedBindAttestation> {
+  const account = privateKeyToAccount(privateKey);
+  const messageHash = rebindMessageHash(inputs);
+  const signature = await account.signMessage({ message: { raw: messageHash } });
+  return { attesterAddress: account.address, messageHash, signature };
 }

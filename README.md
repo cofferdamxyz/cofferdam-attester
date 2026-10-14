@@ -99,6 +99,17 @@ the two registries never share a signer. Codes: `WRONG_CHAIN_ID`,
 `BAD_ACCOUNT`, `BAD_CEREMONY_ACTION`, `BAD_CEREMONY_FIELD`,
 `BAD_CEREMONY_WINDOW`, `BAD_ATTESTER_KEY`.
 
+### `signRebind` — the re-bind co-sign (decision 0022)
+
+Same request as `signBind` plus `epoch: string`, the registry's
+`rebindCount[nullifier]` as `cofferdam-api` read it. Same pins and the same
+Celo gate; the signature is over
+`NullifierRegistry.rebindMessageHash(newAccount, pubSignals, epoch)` =
+`keccak256(abi.encode(chainid, registry, keccak256("cofferdam-rebind-v1"), newAccount, pubSignals, epoch))`,
+so it is never valid as a bind and is consumed by the first `rebind` the
+registry accepts. The response is a `SignBindResponse` plus `epoch`. Vector
+from the contract in `test/rebind.test.ts`. Code: `BAD_EPOCH`.
+
 ### `userContextData` — why signal 20 is not the address
 
 The `vc_and_disclose` circuit's `userIdentifier` public signal (index 20) is
