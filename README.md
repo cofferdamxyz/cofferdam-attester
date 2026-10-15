@@ -1,334 +1,68 @@
 # cofferdam-attester
 
-> Service-binding-only Worker that signs `NullifierRegistry.attesterMessageHash`
-> with the registered `SelfAttester` ECDSA key — after re-verifying the proof
-> against Self.xyz's registry on Celo. Part of the
-> [Cofferdam](https://cofferdam.xyz) wallet stack.
+The Cofferdam attester: a private Cloudflare Worker that holds two signing keys and co-signs what Cofferdam's Base contracts require a Cofferdam signature for. It re-verifies a Self.xyz `disclose` proof against Self's registry on Celo before signing the `NullifierRegistry` bind or rebind message, and it co-signs passkey ceremonies for `CofferdamAccount4337`. It has no URL: `workers_dev` is off, there are no routes, and the only caller is [`cofferdam-api`](https://github.com/cofferdamxyz/cofferdam-api) through its `ATTESTER` service binding, so even a compromised API can call the RPC methods but never read a key. There is no Cofferdam prover: Self proves in its own enclave.
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-
-The Cofferdam attester Worker holds the registered `SelfAttester` ECDSA key as
-a Cloudflare-managed secret and signs bind messages that authorise
-`NullifierRegistry.verifyAndBind` on Base. It is never publicly reachable —
-accessed only via service binding from
-[`cofferdam-api`](https://github.com/cofferdamxyz/cofferdam-api). Trust model is
-documented in
-[cofferdam-sdk/IDENTITY_LAYER_DESIGN.md](https://github.com/cofferdamxyz/cofferdam-sdk/blob/main/IDENTITY_LAYER_DESIGN.md)
-and the gate design in `Cofferdam/decisions/0004`.
-
-We do **not** generate Self proofs. Self.xyz proves inside a GCP Confidential
-Space enclave and anchors the identity-commitment tree, the OFAC roots and the
-Groth16 verifiers on Celo. This Worker bridges that Celo-side state onto Base;
-there is no Cofferdam prover.
-
-## Public RPC surface
-
-```ts
-interface AttesterRpc {
-  signBind(req: {
-    registry: `0x${string}`;
-    account:  `0x${string}`;
-    pubSignals: readonly string[];   // 21 decimal strings
-    userContextData: `0x${string}`;  // >= 64 bytes, see below
-  }): Promise<SignBindResponse>;
-}
-
-type SignBindResponse = {
-  attesterAddress: `0x${string}`;
-  messageHash:     `0x${string}`;  // 32 bytes, attesterMessageHash preimage
-  signature:       `0x${string}`;  // 65 bytes, EIP-191
-  chainId:  string;
-  registry: `0x${string}`;
-  account:  `0x${string}`;
-  userContextData: `0x${string}`;  // echoed; submit these exact bytes
-  gate: 'celo';
-  celo: {
-    chainId: string;                 // "42220"
-    registry: `0x${string}`;         // Self's E_PASSPORT identity registry
-    merkleRoot: string;              // pubSignals[9], confirmed published
-    proofDate: string;               // "YYYY-MM-DD" from pubSignals[10..15]
-  };
-};
-```
-
-Errors are thrown with a `CODE: detail` message so consumers can branch on
-the prefix over Workers RPC. Request-shape codes come from `src/bind.ts`
-(`REGISTRY_NOT_ALLOWED`, `USER_IDENTIFIER_MISMATCH`, …); gate codes from
-`src/celoGate.ts` (`CELO_ROOT_UNKNOWN`, `CELO_OFAC_ROOTS_STALE`,
-`PROOF_DATE_OUT_OF_WINDOW`, …). Only `CELO_RPC_UNAVAILABLE` is retryable.
-
-Source of truth: `src/rpc.ts`. `cofferdam-api/src/services/attester.ts` keeps a
-byte-compatible copy; change both in the same commit.
-
-### `signCeremony` — the passkey ceremony co-sign (decision 0016)
-
-```ts
-interface AttesterRpc {
-  signCeremony(req: {
-    chainId: string;                 // must equal BASE_CHAIN_ID
-    account: `0x${string}`;          // the CofferdamAccount4337
-    action: 'enroll-first-high' | 'replace-partner';
-    newKeyHash: `0x${string}`;       // keccak256(newConfig)
-    partnerId: `0x${string}`;        // Partner config word 3, or 32 zero bytes for Managed
-    nonce: string;                   // the account's ceremonyNonce
-    notBefore: string;               // unix seconds, uint48
-    expiry: string;                  // at most one hour after notBefore
-  }): Promise<SignCeremonyResponse>;
-}
-
-type SignCeremonyResponse = {
-  attesterAddress: `0x${string}`;   // listed in CofferdamCeremonyAttesterRegistry
-  messageHash:     `0x${string}`;   // == CofferdamAccount4337.ceremonyHash(...)
-  signature:       `0x${string}`;   // 65 bytes, EIP-191: CeremonyAttestation.signature
-  chainId: string; account: `0x${string}`; action: string;
-  nonce: string; notBefore: string; expiry: string;
-};
-```
-
-`CofferdamAccount4337.enrollFirstHigh` (the first High passkey on a Partner or
-Managed account) and `replacePartnerAuthority` consume this signature next to
-the account's own authority signature and the new key's assertion; it never
-moves anything on its own. The gate (a deployed Cofferdam account with no
-High yet, the new key's assertion over `firstHighChallenge(nonce)`, the
-pinned High module) runs in `cofferdam-api` (`POST /v1/ceremony/first-high`),
-which has the Base reads; this Worker pins the chain, bounds the window to an
-hour, reproduces `ceremonyHash` (`src/ceremony.ts`, known-answer vector from
-the contract in `test/ceremony.test.ts`) and signs with
-`CEREMONY_ATTESTER_PRIVATE_KEY`, a separate secret from the Self bind key so
-the two registries never share a signer. Codes: `WRONG_CHAIN_ID`,
-`BAD_ACCOUNT`, `BAD_CEREMONY_ACTION`, `BAD_CEREMONY_FIELD`,
-`BAD_CEREMONY_WINDOW`, `BAD_ATTESTER_KEY`.
-
-### `signRebind` — the re-bind co-sign (decision 0022)
-
-Same request as `signBind` plus `epoch: string`, the registry's
-`rebindCount[nullifier]` as `cofferdam-api` read it. Same pins and the same
-Celo gate; the signature is over
-`NullifierRegistry.rebindMessageHash(newAccount, pubSignals, epoch)` =
-`keccak256(abi.encode(chainid, registry, keccak256("cofferdam-rebind-v1"), newAccount, pubSignals, epoch))`,
-so it is never valid as a bind and is consumed by the first `rebind` the
-registry accepts. The response is a `SignBindResponse` plus `epoch`. Vector
-from the contract in `test/rebind.test.ts`. Code: `BAD_EPOCH`.
-
-### `userContextData` — why signal 20 is not the address
-
-The `vc_and_disclose` circuit's `userIdentifier` public signal (index 20) is
-**not** `uint160(account)`. Self emits a 160-bit commitment:
+## Layout
 
 ```
-userContextData = abi.encodePacked(
-    bytes32(SelfApp.chainID),   // Self's declared dest chain (Celo 42220)
-    bytes32(userId),            // left-padded; hyphens stripped
-    bytes(userDefinedData))     // raw UTF-8, may be empty
-
-userIdentifier  = uint160(ripemd160(sha256(userContextData)))
+src/
+  index.ts      WorkerEntrypoint with the RPC methods; audit log line per sign or rejection
+  rpc.ts        request and response types (mirrored by cofferdam-api/src/services/attester.ts)
+  bind.ts       request validation against the pins (chain, registry, userContextData)
+  celoGate.ts   the Celo reads and checks
+  sign.ts       bind and rebind preimages, EIP-191 signing
+  ceremony.ts   ceremony preimage (CofferdamAccount4337.ceremonyHash) and window rules
+  env.ts        typed vars and secrets
+test/           Vitest: gate, validation, signing, rebind, ceremony; celoGate.live.test.ts behind CELO_LIVE=1
 ```
 
-see `calculateUserIdentifierHash` in `self/common/src/utils/hash.ts`.
+## RPC methods
 
-The attester therefore requires the preimage: it decodes the embedded user id,
-requires it to equal `account`, and recomputes the commitment against
-`pubSignals[20]`. `NullifierRegistry.verifyAndBind` takes the same bytes and
-re-runs both checks on-chain via the `sha256`/`ripemd160` precompiles, so the
-attester's version is purely a fail-fast that saves gas.
+| Method | Signs | Key |
+|---|---|---|
+| `signBind` | `NullifierRegistry.attesterMessageHash(chainId, registry, account, pubSignals)`, after the Celo gate | `ATTESTER_PRIVATE_KEY`, trusted by `SelfAttesterRegistry` |
+| `signRebind` | the rebind message bound to the registry's `rebindCount` epoch, after the same gate (workspace decision 0022) | `ATTESTER_PRIVATE_KEY` |
+| `signCeremony` | `CofferdamAccount4337.ceremonyHash` for `enroll-first-high` or `replace-partner`, within a window of at most one hour; the gate itself runs in `cofferdam-api`, which exposes `enroll-first-high` today | `CEREMONY_ATTESTER_PRIVATE_KEY`, listed in `CofferdamCeremonyAttesterRegistry` |
 
-Two consequences for callers:
-
-- `SelfApp.userId` **must** be the AA address. A UUID produces a valid proof
-  that can never bind.
-- `SelfApp.chainID` **must** equal the registry's `selfDestChainId` immutable
-  (and this Worker's `SELF_CELO_CHAIN_ID`).
+Every response echoes the signer address, the message hash and the audit fields. **Planned:** the co-sign for hard recovery (`recoverHigh`, workspace decision 0023); the contracts are on Sepolia, the method is not built.
 
 ## The Celo gate
 
-Base's `NullifierRegistry` verifies the Groth16 proof itself, but a Groth16
-proof only shows "this commitment is a leaf of the tree with root R". It cannot
-show that R is one of Self's roots: a forged tree yields a perfectly valid
-proof over an invented commitment. The attester is where that gap closes.
-Before it signs, `src/celoGate.ts` asks Celo over read-only `eth_call` the same
-questions `IdentityVerificationHubImplV2._basicVerification` asks when a proof
-is consumed natively:
+1. The hub at `SELF_HUB_ADDRESS` must still route E_PASSPORT to `SELF_PASSPORT_REGISTRY_ADDRESS` (`CELO_REGISTRY_MISMATCH`).
+2. The proof's identity-commitment root (`pubSignals[9]`) must be one Self published (`checkIdentityCommitmentRoot`, `CELO_ROOT_UNKNOWN`).
+3. Its OFAC roots (`pubSignals[16..18]`) must be current (`checkOfacRoots`, `CELO_OFAC_ROOTS_STALE`); the RPC must answer chain 42220 (`CELO_CHAIN_MISMATCH`).
+4. The proof date must be within ±1 day UTC; the attestation must be E_PASSPORT and `userContextData` must name Celo as destination.
+5. All reads are read-only `eth_call`s to Celo mainnet; the Groth16 proof itself is verified on Base by `NullifierRegistry` (workspace decision 0004).
 
-| Check | Celo call | Rejection code |
-|---|---|---|
-| Hub still routes E_PASSPORT to the pinned registry | `hub.registry(bytes32(1))` | `CELO_REGISTRY_MISMATCH` |
-| Proof's Merkle root was published by Self | `registry.checkIdentityCommitmentRoot(pubSignals[9])` | `CELO_ROOT_UNKNOWN` |
-| Proof used the current or previous OFAC snapshot | `registry.checkOfacRoots(pubSignals[16], [17], [18])` | `CELO_OFAC_ROOTS_STALE` |
-| RPC answers for the pinned chain | `eth_chainId` | `CELO_CHAIN_MISMATCH` |
-| Proof date (`pubSignals[10..15]`, YYMMDD) within ±1 day UTC | — | `PROOF_DATE_OUT_OF_WINDOW` |
-| Attestation id is E_PASSPORT | — | `WRONG_ATTESTATION_ID` |
-| `userContextData` destination chain equals the pinned Celo | — | `WRONG_DEST_CHAIN_ID` |
+## Develop
 
-Roots never expire on Self's registry, so the root check is membership over
-every root ever published, exactly as on Celo. The Groth16 proof is not
-re-verified here: the attester signs over the public signals only, so a
-tampered proof reverts on Base rather than being accepted off-chain.
-
-Pins live in `wrangler.jsonc`: `CELO_RPC_URL`, `SELF_CELO_CHAIN_ID`,
-`SELF_HUB_ADDRESS`, `SELF_PASSPORT_REGISTRY_ADDRESS`. They change only when
-Self migrates contracts — a spike of `CELO_REGISTRY_MISMATCH` in
-`wrangler tail` is that signal. Self's staging stack (Celo Sepolia, mock
-passports) cannot be used with the current registry because
-`selfDestChainId = 42220` is immutable on Base.
-
-## Local dev
+yarn only; never `npm install`.
 
 ```bash
 yarn install
-
-# Set the attester private key as a local-dev secret. Stored in
-# `.dev.vars` (already git-ignored).
-echo "ATTESTER_PRIVATE_KEY=0x<paste-from-1Password>" > .dev.vars
-echo "ENVIRONMENT=development" >> .dev.vars   # the deployed Worker runs staging
-
-yarn dev
-# wrangler dev binds on a high port, prints the local-registry URL.
-# Leave running; cofferdam-api/yarn dev will auto-discover it.
+yarn test               # unit, offline
+CELO_LIVE=1 yarn test   # also runs the gate against forno.celo.org
+yarn typecheck
+yarn wrangler dev --port 8788   # cofferdam-api owns 8787 and discovers this Worker
 ```
 
-Local dev reads Celo mainnet through the same public RPC as production; no
-local chain is involved.
-
-## Tests
-
-```bash
-yarn test              # unit: gate, request validation, signing (fixtures)
-CELO_LIVE=1 yarn test  # also runs the gate against forno.celo.org
-```
-
-The live test reads the current root and OFAC roots from Celo and proves the
-viem-backed reads agree with the fixture semantics; it is skipped by default
-so CI stays offline.
+`.dev.vars` (ignored) holds `ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY` and `ENVIRONMENT=development`. Exercise it through the API: `POST /v1/attester/test-sign` returns `onchainValid: true` when the whole rail works. After a key rotation, update `.dev.vars` too, or local signatures come from a retired key.
 
 ## Deploy
 
-```bash
-yarn install
+From the Mac with the workspace `.envrc` loaded, before the API when a pin moves: `direnv exec .. yarn deploy` (it reports "No deploy targets", as expected). See `docs/runbooks/cloudflare-deploys.md` in the cofferdam workspace repository.
 
-# Upload the attester key as a Cloudflare-managed secret. Wrangler
-# will prompt; paste from 1Password. Encrypted at rest in Cloudflare's
-# secret store; never visible in dashboards or wrangler tail.
-yarn wrangler secret put ATTESTER_PRIVATE_KEY
+## Key facts
 
-# The ceremony co-sign key (decision 0016): a different key, listed in
-# CofferdamCeremonyAttesterRegistry by its owner (`addAttester`).
-yarn wrangler secret put CEREMONY_ATTESTER_PRIVATE_KEY
+- Pins in `wrangler.jsonc`: `BASE_CHAIN_ID` (84532), `NULLIFIER_REGISTRY_ADDRESS` (must equal `SEPOLIA_DEPLOYMENTS.NullifierRegistry` in `cofferdam-api`, or every call fails `REGISTRY_NOT_ALLOWED`), and the four Celo pins. Base mainnet gets its own deployment rather than a second value here.
+- Secrets enter only through `wrangler secret put`. The bind key and the ceremony key are separate keys on separate allow-lists.
+- Rotating the bind key is `base-contracts/scripts/rotate-self-attester.ts` on Base, the deployed secret and `.dev.vars`, together.
+- A change to an RPC shape or the gate ships with its caller in `cofferdam-api`.
 
-# Deploy. workers_dev:false means there is no public URL; the only
-# way to reach this Worker is via the service binding declared on
-# cofferdam-api.
-yarn deploy
-```
+## Documentation
 
-After deploy, smoke-test from `cofferdam-api` (which has the binding):
-
-```bash
-# Substitute your own workers.dev subdomain — `wrangler deploy` prints the
-# full URL under "Deployed cofferdam-api triggers".
-API="https://cofferdam-api.<your-subdomain>.workers.dev"
-
-curl -sX POST "$API/v1/attester/test-sign" \
-  -H 'content-type: application/json' \
-  -d '{"account":"0xfa4D920d5592289A1A0F73CA49D626EF8FE4D695"}' | jq '.onchainValid'
-# expect: true
-```
-
-If this prints **nothing at all**, the placeholder was not substituted: `curl -s`
-swallows the DNS failure and `jq` then receives empty input. Re-run without `-s`
-(and without the `jq` pipe) to see the real error.
-
-`test-sign` builds synthetic public signals that carry Celo's *current* root and
-OFAC roots plus today's date, so the request passes the gate without a proof;
-nothing can be bound with it because there is no Groth16 proof behind the
-signals. `onchainValid: true` proves the whole rail: service binding → Celo
-gate → attester key signs the canonical preimage →
-`SelfAttesterRegistry.verifyAttesterSig` recovers that address on Base Sepolia
-and finds it allow-listed. Drop `| jq '.onchainValid'` to inspect
-`signed.celo` and the derived `pubSignals[20]` commitment.
-
-This Worker has `workers_dev: false` and no routes, so it has **no public URL** of its
-own — `wrangler deploy` correctly reports "No deploy targets". It is only reachable
-through the `ATTESTER` service binding on `cofferdam-api`.
-
-## Local development
-
-Two `wrangler dev` sessions; the dev registry wires the service binding
-automatically. The attester needs an explicit port because `cofferdam-api`
-already owns the default `8787`:
-
-```bash
-yarn --cwd cofferdam-attester wrangler dev --port 8788
-yarn --cwd cofferdam-api dev     # --ip 0.0.0.0, port 8787
-```
-
-`cofferdam-api` should log `env.ATTESTER (cofferdam-attester) Worker local [connected]`.
-Then the same `test-sign` call works against `http://127.0.0.1:8787`.
-
-### After rotating the attester key, update `.dev.vars` too
-
-`wrangler secret put` only writes the **deployed** secret. Local dev reads
-`ATTESTER_PRIVATE_KEY` from `cofferdam-attester/.dev.vars`, which a rotation
-leaves untouched — so local signatures keep using the retired key and
-`onchainValid` is `false` while the deployed Worker is fine.
-
-The symptom is specific: the response's `signed.attesterAddress` is an address
-that `SelfAttesterRegistry.isTrustedAttester` returns `false` for.
-
-```bash
-# which key is local dev actually using?
-curl -sX POST http://127.0.0.1:8787/v1/attester/test-sign \
-  -H 'content-type: application/json' \
-  -d '{"account":"0xfa4D920d5592289A1A0F73CA49D626EF8FE4D695"}' \
-  | jq '{onchainValid, signer: .signed.attesterAddress}'
-```
-
-If `signer` is not the registered attester, paste the rotated key into
-`.dev.vars` and restart the dev session. `.dev.vars` is gitignored; the key
-lives in 1Password.
-
-## Responsibilities
-
-1. Receive `(account, registry, pubSignals, userContextData)` from a bound
-   caller.
-2. Validate `registry` against the pinned allowlist (single-element:
-   `NULLIFIER_REGISTRY_ADDRESS` from `wrangler.jsonc`).
-3. Decode `userContextData`, require the embedded user id to equal
-   `account`, and require `ripemd160(sha256(userContextData))` to equal
-   `pubSignals[USER_IDENTIFIER]`. Fail-fast mirror of the on-chain check.
-4. Run the Celo gate (table above). Refuse on any mismatch; never sign a
-   proof whose root Self did not publish.
-5. Recompute `attesterMessageHash(chainId, registry, account, pubSignals)`
-   byte-for-byte with `NullifierRegistry.attesterMessageHash`.
-6. Sign with EIP-191 personal_sign over the 32-byte hash.
-7. Return `{ attesterAddress, messageHash, signature, userContextData, celo }`
-   plus echoed audit fields, and log one audit line per sign or rejection.
-8. Rotate the signing key quarterly + on incident. On rotation, the
-   new attester address is registered via
-   `SelfAttesterRegistry.addAttester(...)` on Base; the old one
-   is removed after a cooldown window.
-
-## Why a separate Worker
-
-- **Blast radius isolation.** The attester key is the production
-  identity rail. A bug in `cofferdam-api` cannot expose it because
-  `cofferdam-api` only calls `signBind(...)` via service binding —
-  it never sees the raw secret. The Worker's only egress is the read-only
-  Celo RPC.
-- **Independent audit log.** Every signature and every gate rejection is
-  logged; an audit job replays sign events against on-chain
-  `NullifierBound` events to detect any over-signing.
-- **Contract-free rotation.** Replacing the attester key is an
-  `addAttester` / `removeAttester` pair on `SelfAttesterRegistry`; nothing
-  else on-chain moves.
-
-## Sibling repositories
-
-| Repo                                                                 | Role                                          |
-|----------------------------------------------------------------------|-----------------------------------------------|
-| [`cofferdam-api`](https://github.com/cofferdamxyz/cofferdam-api)     | Public-edge HTTP Worker; consumes this RPC    |
-| [`cofferdam-sdk`](https://github.com/cofferdamxyz/cofferdam-sdk)     | Public SDK + identity-layer design doc        |
-| [`base-contracts`](https://github.com/cofferdamxyz/base-contracts)   | Solidity contracts (Self.xyz integration)     |
+Design documentation lives in the cofferdam workspace repository under `docs/` and will be published at docs.cofferdam.xyz: `docs/architecture/plane.md`, `docs/architecture/identity.md`, `docs/runbooks/cloudflare-deploys.md`, `docs/runbooks/self-verification.md`.
 
 ## License
 
-[Apache License 2.0](LICENSE). Copyright 2026 Cofferdam Inc.
+Apache License 2.0. Copyright 2026 Cofferdam Inc. See `LICENSE` and `NOTICE`.
