@@ -6,8 +6,8 @@ Service-binding-only Cloudflare Worker that re-verifies a Self.xyz disclose
 proof against Self's registry on Celo and signs `NullifierRegistry` bind and
 rebind messages with the registered `SelfAttester` ECDSA key, and decision 0016
 ceremony co-signs with the ceremony attester key. The only caller is
-`cofferdam-api` through its `services` binding: `workers_dev` is off and there
-are no routes. `README.md` documents the RPC surface and the Celo gate; the
+`cofferdam-api` through its `services` binding: `workers_dev` and
+`preview_urls` are off and there are no routes. `README.md` documents the RPC surface and the Celo gate; the
 trust model is the workspace `docs/architecture/plane.md` and decision 0004.
 The hard-recovery co-sign of decision 0023 is not built yet. There is no Cofferdam prover: Self proves in its own enclave.
 

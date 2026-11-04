@@ -15,7 +15,8 @@
  * this binding.
  *
  * Defense layers:
- *   1. `workers_dev: false` + zero routes → no public ingress.
+ *   1. `workers_dev: false` + `preview_urls: false` + zero routes → no public
+ *      ingress.
  *   2. Service-binding only → only Workers in this Cloudflare account call it.
  *   3. Pinned Base chain id + registry allowlist → a compromised consumer
  *      Worker cannot obtain a signature usable on another chain or registry.
@@ -317,7 +318,7 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
   /**
    * Non-RPC fetch handler. The Worker is service-binding only, but a default
    * export needs `fetch`; 405 makes the boundary explicit if `workers_dev`
-   * is ever flipped by accident.
+   * or `preview_urls` is ever flipped by accident.
    */
   override async fetch(): Promise<Response> {
     return new Response('cofferdam-attester is service-binding-only; use the ATTESTER RPC', {

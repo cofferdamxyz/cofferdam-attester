@@ -4,7 +4,8 @@
  * Holds the SelfAttester ECDSA private key as a Cloudflare-managed secret and
  * signs bind messages for `NullifierRegistry` on Base, after re-verifying the
  * proof's Celo-anchored facts against Self's registry (decision 0004).
- * Strictly service-binding only — `workers_dev: false` and zero `routes`.
+ * Strictly service-binding only — `workers_dev: false`, `preview_urls: false`
+ * and zero `routes`.
  * The only caller is `cofferdam-api`, bound via `services` in its own
  * wrangler.jsonc.
  *
@@ -24,11 +25,13 @@
   },
 
   // ── PRIVATE WORKER ──────────────────────────────────────────────
-  // No public *.workers.dev URL. No routes. The only way to invoke this
-  // Worker is the `services` binding from another Worker in the same
+  // No public *.workers.dev URL, no per-version Preview URLs (left unset,
+  // wrangler keeps whatever the account has), no routes. The only way to
+  // invoke this Worker is the `services` binding from another Worker in the same
   // Cloudflare account. Even a compromised cofferdam-api can only call the
   // exposed RPC method, never extract the secret.
   "workers_dev": false,
+  "preview_urls": false,
 
   // Variables — non-secret. Pinned so the attester refuses to sign for the
   // wrong registry, the wrong Base chain, or against the wrong Celo.

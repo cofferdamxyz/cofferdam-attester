@@ -5,7 +5,7 @@ Read with `AGENTS.md` and `README.md`. All of this repository is **high risk**: 
 ## What failure looks like
 
 - A path to `signBind`, `signRebind` or `signCeremony` that skips or weakens the Celo gate (`celoGate.ts`) or the ceremony's checks, or signs a message whose fields the gate did not check.
-- A reachable surface other than the `cofferdam-api` service binding: `workers_dev` on, a route, a `fetch` handler that does more than refuse.
+- A reachable surface other than the `cofferdam-api` service binding: `workers_dev` on, `preview_urls` on or unset, a route, a `fetch` handler that does more than refuse.
 - A key (`ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY`) or a signature logged, returned in an error, or present in `wrangler.jsonc`, a test or a doc.
 - A development or staging shortcut reachable when `ENVIRONMENT` says otherwise.
 - An RPC shape change without `README.md`, the caller in `cofferdam-api` and the workspace `docs/architecture/plane.md` in the same pass.
