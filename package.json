@@ -23,11 +23,11 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "viem": "2.51.3"
+    "viem": "2.57.13"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260530.1",
-    "@types/node": "26.2.0",
+    "@types/node": "26.6.5",
     "typescript": "5.9.3",
     "vitest": "4.1.6",
     "wrangler": "4.154.0"
