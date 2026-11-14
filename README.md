@@ -24,7 +24,7 @@ test/           Vitest: gate, validation, signing, rebind, ceremony; celoGate.li
 | `signRebind` | the rebind message bound to the registry's `rebindCount` epoch, after the same gate (workspace decision 0022) | `ATTESTER_PRIVATE_KEY` |
 | `signCeremony` | `CofferdamAccount4337.ceremonyHash` for `enroll-first-high` or `replace-partner`, within a window of at most one hour; the gate itself runs in `cofferdam-api`, which exposes `enroll-first-high` today | `CEREMONY_ATTESTER_PRIVATE_KEY`, listed in `CofferdamCeremonyAttesterRegistry` |
 
-Every response echoes the signer address, the message hash and the audit fields. **Planned:** the co-sign for hard recovery (`recoverHigh`, workspace decision 0023); the contracts are on Sepolia, the method is not built.
+Every response echoes the signer address, the message hash and the audit fields. Each sign or refusal writes one JSON audit line naming the account; no line carries the nullifier beside it (the identity log policy, workspace decision 0080), so a sign reconciles with its on-chain `NullifierBound` event by account and message hash (`test/auditLog.test.ts`). **Planned:** the co-sign for hard recovery (`recoverHigh`, workspace decision 0023); the contracts are on Sepolia, the method is not built.
 
 ## The Celo gate
 
