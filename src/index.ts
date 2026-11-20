@@ -26,7 +26,9 @@
  *      proof's Merkle root is a root Self actually published.
  *   6. Audit log per request → every sign and every rejection hits Workers
  *      Logs; a replay auditor reconciles sign events against on-chain
- *      `NullifierBound` events.
+ *      `NullifierBound` events by account and message hash. No line carries
+ *      the nullifier next to the account (the identity log policy, workspace
+ *      decision 0080).
  */
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
@@ -123,7 +125,6 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
         chainId: prepared.chainIdStr,
         registry: prepared.registry,
         account: prepared.account,
-        nullifier: prepared.nullifier.toString(),
         epoch: epoch.toString(),
         attesterAddress: signed.attesterAddress,
         messageHash: signed.messageHash,
@@ -254,7 +255,6 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
             retryable: err.retryable,
             message: err.message,
             account: prepared.account,
-            nullifier: prepared.nullifier.toString(),
           }),
         );
         throw new AttesterError(err.code, err.message, err.retryable);
@@ -274,9 +274,13 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
       pubSignals,
     });
 
-    // Privacy-safe audit line: the nullifier is public on bind anyway, so
-    // logging it here adds no linkability. Full pubSignals are NOT logged —
-    // the revealed-data words can carry disclosure fields.
+    // The audit line names the account, so it never carries the nullifier
+    // (the identity log policy, workspace decision 0080): a log kept off the
+    // chain must not join a passport to an account, whatever the chain later
+    // shows. The message hash commits to it, so a sign still reconciles with
+    // its on-chain `NullifierBound` event by account and message hash. Full
+    // pubSignals are NOT logged: the revealed-data words can carry disclosure
+    // fields.
     console.log(
       JSON.stringify({
         kind: 'attester.signBind',
@@ -286,7 +290,6 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
         account,
         attestationId: pubSignals[PASSPORT_DISCLOSE_INDEX.ATTESTATION_ID]!.toString(),
         scope: pubSignals[PASSPORT_DISCLOSE_INDEX.SCOPE]!.toString(),
-        nullifier: prepared.nullifier.toString(),
         attesterAddress: signed.attesterAddress,
         messageHash: signed.messageHash,
         gate: 'celo',
