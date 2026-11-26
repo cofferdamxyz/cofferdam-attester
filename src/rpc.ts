@@ -99,12 +99,19 @@ export type CeremonyAction = 'enroll-first-high' | 'replace-partner';
 /**
  * Request payload for `signCeremony` (decision 0016). Every field mirrors an
  * argument of `CofferdamAccount4337.ceremonyHash`; `cofferdam-api` reads the
- * account and derives them, this Worker checks the chain pin and the window
- * and signs. Bigints travel as decimal strings (see above).
+ * account and derives them, this Worker checks the chain and registry pins and
+ * the window and signs in its pinned form (`CEREMONY_SIGNATURE`, decision 0090
+ * item 5). Bigints travel as decimal strings (see above).
  */
 export interface SignCeremonyRequest {
   /** Must equal the attester's pinned `BASE_CHAIN_ID`, otherwise `WRONG_CHAIN_ID`. */
   readonly chainId: string;
+  /**
+   * The account's `CEREMONY_ATTESTERS`, which the plane read and checked
+   * against its own pin. Must equal `CEREMONY_REGISTRY_ADDRESS`, otherwise
+   * `REGISTRY_NOT_ALLOWED`; it is the EIP-712 `verifyingContract`.
+   */
+  readonly registry: Hex;
   /** The `CofferdamAccount4337` the ceremony is for. */
   readonly account: Hex;
   readonly action: CeremonyAction;
@@ -123,10 +130,16 @@ export interface SignCeremonyRequest {
 export interface SignCeremonyResponse {
   /** Recovered signer address (must be listed in `CofferdamCeremonyAttesterRegistry`). */
   readonly attesterAddress: Hex;
-  /** The 32-byte hash signed (equals `CofferdamAccount4337.ceremonyHash(...)`). */
+  /**
+   * Equals `CofferdamAccount4337.ceremonyHash(...)` in the pinned form: the
+   * EIP-712 digest the signature recovers over, or the hash EIP-191 wraps.
+   */
   readonly messageHash: Hex;
-  /** 65-byte EIP-191 personal_sign signature. */
+  /** 65-byte signature, the `CeremonyAttestation.signature` bytes. */
   readonly signature: Hex;
+  /** The form this Worker signs in: `eip712`, or `eip191` for Sepolia's deployed generation. */
+  readonly signatureForm: 'eip191' | 'eip712';
+  readonly registry: Hex;
   /** Echoed for caller-side audit and for building the on-chain struct. */
   readonly chainId: string;
   readonly account: Hex;

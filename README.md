@@ -11,7 +11,7 @@ src/
   bind.ts       request validation against the pins (chain, registry, userContextData)
   celoGate.ts   the Celo reads and checks
   sign.ts       bind and rebind preimages, EIP-191 signing
-  ceremony.ts   ceremony preimage (CofferdamAccount4337.ceremonyHash) and window rules
+  ceremony.ts   ceremony typed data and EIP-191 preimage (CofferdamAccount4337.ceremonyHash), pins and window rules
   env.ts        typed vars and secrets
 test/           Vitest: gate, validation, signing, rebind, ceremony; celoGate.live.test.ts behind CELO_LIVE=1
 ```
@@ -22,7 +22,7 @@ test/           Vitest: gate, validation, signing, rebind, ceremony; celoGate.li
 |---|---|---|
 | `signBind` | `NullifierRegistry.attesterMessageHash(chainId, registry, account, pubSignals)`, after the Celo gate | `ATTESTER_PRIVATE_KEY`, trusted by `SelfAttesterRegistry` |
 | `signRebind` | the rebind message bound to the registry's `rebindCount` epoch, after the same gate (workspace decision 0022) | `ATTESTER_PRIVATE_KEY` |
-| `signCeremony` | `CofferdamAccount4337.ceremonyHash` for `enroll-first-high` or `replace-partner`, within a window of at most one hour; the gate itself runs in `cofferdam-api`, which exposes `enroll-first-high` today | `CEREMONY_ATTESTER_PRIVATE_KEY`, listed in `CofferdamCeremonyAttesterRegistry` |
+| `signCeremony` | `CofferdamAccount4337.ceremonyHash` for `enroll-first-high` or `replace-partner`, within a window of at most one hour, in the form the Worker pins (`CEREMONY_SIGNATURE`): `eip712`, the typed `CeremonyAttestation` under the domain ("Cofferdam Ceremony", "1", chainId, `CEREMONY_REGISTRY_ADDRESS`), for the production account generation on (workspace decision 0090 item 5), or `eip191` for Base Sepolia's deployed generation; the request must name the pinned registry (`REGISTRY_NOT_ALLOWED`) and never picks the form; the gate itself runs in `cofferdam-api`, which exposes `enroll-first-high` today | `CEREMONY_ATTESTER_PRIVATE_KEY`, listed in `CofferdamCeremonyAttesterRegistry` |
 
 Every response echoes the signer address, the message hash and the audit fields. Each sign or refusal writes one JSON audit line naming the account; no line carries the nullifier beside it (the identity log policy, workspace decision 0080), so a sign reconciles with its on-chain `NullifierBound` event by account and message hash (`test/auditLog.test.ts`). **Planned:** the co-sign for hard recovery (`recoverHigh`, workspace decision 0023); the contracts are on Sepolia, the method is not built.
 
@@ -54,10 +54,11 @@ From the Mac with the workspace `.envrc` loaded, before the API when a pin moves
 
 ## Key facts
 
-- Pins in `wrangler.jsonc`: `BASE_CHAIN_ID` (84532), `NULLIFIER_REGISTRY_ADDRESS` (must equal `SEPOLIA_DEPLOYMENTS.NullifierRegistry` in `cofferdam-api`, or every call fails `REGISTRY_NOT_ALLOWED`), and the four Celo pins. Base mainnet gets its own deployment rather than a second value here.
+- Pins in `wrangler.jsonc`: `BASE_CHAIN_ID` (84532), `NULLIFIER_REGISTRY_ADDRESS` (must equal `SEPOLIA_DEPLOYMENTS.NullifierRegistry` in `cofferdam-api`, or every call fails `REGISTRY_NOT_ALLOWED`), `CEREMONY_SIGNATURE` (`eip191` while Sepolia's deployed generation is current; `eip712` from the next generation, a malformed value refusing every ceremony) and `CEREMONY_REGISTRY_ADDRESS` (EIP-55, the chain's `CofferdamCeremonyAttesterRegistry` in `cofferdam-api/src/chain/deployments.ts`), and the four Celo pins. Base mainnet gets its own deployment rather than a second value here.
 - Secrets enter only through `wrangler secret put`. The bind key and the ceremony key are separate keys on separate allow-lists.
 - Rotating the bind key is `base-contracts/scripts/rotate-self-attester.ts` on Base, the deployed secret and `.dev.vars`, together.
 - A change to an RPC shape or the gate ships with its caller in `cofferdam-api`.
+- `test/fixtures/ceremonyTypes.json` is cofferdam-sdk's shared fixture of the typed ceremony, copied byte for byte; the attester's signatures equal the SDK's for its vectors.
 
 ## Documentation
 
