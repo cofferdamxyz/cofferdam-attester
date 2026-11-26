@@ -9,10 +9,12 @@
  * has confirmed the proof's identity-commitment root, OFAC roots and date
  * against Self's own registry (decision 0004). `signCeremony` co-signs a
  * passkey ceremony for `CofferdamAccount4337` (decision 0016) with a separate
- * key; `signRebind` co-signs a nullifier rebind (decision 0022) with the bind
- * key over an epoch-bound message. This Worker is the only place in the Cofferdam stack where either
- * private key is ever deserialised; every other surface reaches it through
- * this binding.
+ * key, or through the `ceremony-attester` CDP account under
+ * `CEREMONY_SIGNER=cdp` (decision 0090, E7); `signRebind` co-signs a
+ * nullifier rebind (decision 0022) with the bind key over an epoch-bound
+ * message. This Worker is the only place in the Cofferdam stack where either
+ * private key, or the attester's CDP credentials, is ever deserialised; every
+ * other surface reaches it through this binding.
  *
  * Defense layers:
  *   1. `workers_dev: false` + `preview_urls: false` + zero routes → no public
@@ -44,7 +46,8 @@ import {
   type CeloReads,
 } from './celoGate.js';
 import type { Env } from './env.js';
-import { prepareCeremonyRequest, signCeremonyAttestation } from './ceremony.js';
+import { prepareCeremonyRequest } from './ceremony.js';
+import { ceremonySigner, ceremonySignerSpecOf } from './ceremonySigner.js';
 import type {
   AttesterRpc,
   SignBindRequest,
@@ -158,7 +161,8 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
    * read the account (no High yet, current `ceremonyNonce`, the new key's
    * assertion over `firstHighChallenge`); this Worker pins the chain, bounds
    * the window, reproduces `ceremonyHash` and signs with the ceremony key,
-   * which is never the Self bind key.
+   * which is never the Self bind key: the raw key, or the CDP account that
+   * `CEREMONY_SIGNER=cdp` names (`ceremonySigner.ts`).
    */
   async signCeremony(req: SignCeremonyRequest): Promise<SignCeremonyResponse> {
     const prepared = prepareCeremonyRequest(
@@ -169,8 +173,12 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
       },
       req,
     );
-    assertPrivateKey(this.env.CEREMONY_ATTESTER_PRIVATE_KEY, 'CEREMONY_ATTESTER_PRIVATE_KEY');
-    const signed = await signCeremonyAttestation(this.env.CEREMONY_ATTESTER_PRIVATE_KEY, prepared);
+    // `CEREMONY_SIGNER` (E7): the raw key, or the CDP account; not configured
+    // is BAD_ATTESTER_KEY, never a fallback to the other (decision 0090 item 12).
+    const signer = ceremonySigner(ceremonySignerSpecOf(this.env, prepared.form), {
+      environment: this.env.ENVIRONMENT,
+    });
+    const signed = await signer.sign(prepared);
 
     // The new key hash is a hash of a public key, the partner id is public
     // on the account; nothing here links a person to the account.
@@ -180,6 +188,7 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
         environment: this.env.ENVIRONMENT,
         chainId: prepared.chainIdStr,
         signatureForm: prepared.form,
+        signer: signer.kind,
         registry: prepared.registry,
         account: prepared.account,
         action: prepared.actionName,

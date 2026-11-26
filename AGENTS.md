@@ -5,7 +5,9 @@
 Service-binding-only Cloudflare Worker that re-verifies a Self.xyz disclose
 proof against Self's registry on Celo and signs `NullifierRegistry` bind and
 rebind messages with the registered `SelfAttester` ECDSA key, and decision 0016
-ceremony co-signs with the ceremony attester key. The only caller is
+ceremony co-signs with the ceremony attester key, or, under `CEREMONY_SIGNER=cdp`,
+through the `ceremony-attester` CDP Server Wallet account (workspace decision
+0090, `docs/runbooks/cdp-setup.md` E7; `src/ceremonySigner.ts`, `src/cdp/`). The only caller is
 `cofferdam-api` through its `services` binding: `workers_dev` and
 `preview_urls` are off and there are no routes. `README.md` documents the RPC surface and the Celo gate; the
 trust model is the workspace `docs/architecture/plane.md` and decision 0004.
@@ -15,8 +17,12 @@ The hard-recovery co-sign of decision 0023 is not built yet. There is no Cofferd
 
 - yarn only; never `npm install`. `yarn test` (vitest) and `yarn typecheck`
   before a commit.
-- Secrets (`ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY`) enter only through `wrangler secret put`,
-  never `wrangler.jsonc`, tests or docs. The deployment runs
+- Secrets (`ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY`, and under
+  `CEREMONY_SIGNER=cdp` the attester project's `CDP_API_KEY_ID`,
+  `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`) enter only through `wrangler secret put`,
+  never `wrangler.jsonc`, tests or docs. Tests use throwaway keys and a fake CDP.
+  Under `cdp` nothing falls back to the raw key, and only the EIP-712 form signs.
+  `src/cdp/auth.ts` is a copy of `cofferdam-api/src/services/cdp/auth.ts`: fix both. The deployment runs
   `ENVIRONMENT=staging`; `.dev.vars` sets `development` for `wrangler dev`.
 - Deploys run from the Mac with the workspace `.envrc` sourced (Cofferdam Inc.
   Cloudflare account), never from a cloud session; no hardcoded `account_id`.

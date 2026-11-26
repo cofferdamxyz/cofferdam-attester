@@ -5,10 +5,12 @@
  * Typed environment bindings for the Cofferdam Self attester Worker.
  *
  * Mirrors the `vars` and secrets declared in `wrangler.jsonc`. This Worker
- * has one job (gate and sign bind messages), zero resource bindings
- * (KV/R2/D1/services) and exactly one egress: read-only JSON-RPC to Celo for
- * the bind gate. Adding a binding or an egress here widens the blast radius
- * of the signing key — audit before doing so.
+ * has one job (gate and sign bind messages and ceremony co-signs), zero
+ * resource bindings (KV/R2/D1/services) and two egresses: read-only JSON-RPC
+ * to Celo for the bind gate, and, only under `CEREMONY_SIGNER=cdp`, CDP's
+ * REST API for the ceremony's typed-data signature (`src/cdp/`, decision
+ * 0090, E7). Adding a binding or an egress here widens the blast radius of
+ * the signing key — audit before doing so.
  */
 export interface Env {
   // ── vars ────────────────────────────────────────────────────────
@@ -72,6 +74,27 @@ export interface Env {
    */
   CEREMONY_REGISTRY_ADDRESS: string;
 
+  /**
+   * Who signs the ceremony co-sign (workspace decision 0090, E7;
+   * `src/ceremonySigner.ts`): `key` (the default when unset,
+   * `CEREMONY_ATTESTER_PRIVATE_KEY`) or `cdp` (the attester project's
+   * `ceremony-attester` account, `CEREMONY_CDP_ADDRESS`, with the three CDP
+   * secrets). Any other value, or `cdp` without its address or a well-formed
+   * secret, refuses every `signCeremony` with `BAD_ATTESTER_KEY`; nothing falls
+   * back to the raw key (item 12). `cdp` needs `CEREMONY_SIGNATURE=eip712`,
+   * since an EIP-191 hash signature is the `signEvmHash` the project policy
+   * refuses (items 5 and 9).
+   */
+  CEREMONY_SIGNER?: string;
+
+  /**
+   * EIP-55 address of the `ceremony-attester` CDP account (not a secret), read
+   * only under `CEREMONY_SIGNER=cdp`. It must be listed in the generation's
+   * `CofferdamCeremonyAttesterRegistry`, and its account policy pins
+   * `CEREMONY_REGISTRY_ADDRESS` (`scripts/cdp/policies.mjs` in the workspace).
+   */
+  CEREMONY_CDP_ADDRESS?: string;
+
   // ── secrets (set via `wrangler secret put NAME`) ────────────────
 
   /**
@@ -89,7 +112,23 @@ export interface Env {
    * (decision 0016). Its address must be listed in
    * `CofferdamCeremonyAttesterRegistry`, the registry every account from the
    * factory pins; it is never the Self bind key above, so the two lists never
-   * share a signer. Read once per `signCeremony`, never logged.
+   * share a signer. Read once per `signCeremony` and only while
+   * `CEREMONY_SIGNER` is `key`, never logged. Deleted once the attester signs
+   * through CDP.
    */
-  CEREMONY_ATTESTER_PRIVATE_KEY: string;
+  CEREMONY_ATTESTER_PRIVATE_KEY?: string;
+
+  /**
+   * The attester's own CDP project credentials (decision 0090, question A of
+   * `docs/runbooks/cdp-setup.md`: a project of its own, so its Wallet Secret is
+   * never the plane's), read only under `CEREMONY_SIGNER=cdp`: the Secret API
+   * key's id and its Ed25519 secret as base64 of seed ‖ public key (signing
+   * only, never the Manage restriction, never export), and the project's
+   * Wallet Secret as base64 PKCS#8. Set by the founder with `wrangler secret
+   * put`, copies in the vault (decision 0054). Never logged; an error names
+   * what is malformed, never a byte of it.
+   */
+  CDP_API_KEY_ID?: string;
+  CDP_API_KEY_SECRET?: string;
+  CDP_WALLET_SECRET?: string;
 }

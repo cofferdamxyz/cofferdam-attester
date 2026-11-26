@@ -72,6 +72,17 @@
     // identical to the chain's CofferdamCeremonyAttesterRegistry in
     // cofferdam-api/src/chain/deployments.ts.
     "CEREMONY_REGISTRY_ADDRESS": "0x44A2B59d5D39f773C2e65469e0Dd3217E53823Af",
+    // Who signs the ceremony co-sign (workspace decision 0090, cdp-setup.md E7;
+    // src/ceremonySigner.ts): "key" (the secret CEREMONY_ATTESTER_PRIVATE_KEY)
+    // or "cdp" (the attester project's ceremony-attester account,
+    // CEREMONY_CDP_ADDRESS below, with the secrets CDP_API_KEY_ID,
+    // CDP_API_KEY_SECRET and CDP_WALLET_SECRET). No fallback: "cdp" without
+    // them refuses every ceremony (503 at the plane). "cdp" signs only
+    // CEREMONY_SIGNATURE "eip712": CDP's project policy refuses the raw-hash
+    // signature EIP-191 needs, so Base Sepolia's deployed generation stays on
+    // "key". Unset until the account exists and is listed in the registry:
+    // "CEREMONY_CDP_ADDRESS": "0x…",
+    "CEREMONY_SIGNER": "key",
 
     // ── Celo bind gate ──────────────────────────────────────────
     // Self.xyz anchors its identity-commitment tree and OFAC roots on Celo
@@ -99,4 +110,9 @@
   // Secrets — set via `wrangler secret put`. NOT in this file.
   //   ATTESTER_PRIVATE_KEY  — 0x-prefixed 32-byte secp256k1 key whose address
   //                           is allow-listed in SelfAttesterRegistry.
+  //   CEREMONY_ATTESTER_PRIVATE_KEY — the ceremony key, read only under
+  //                           CEREMONY_SIGNER "key".
+  //   CDP_API_KEY_ID, CDP_API_KEY_SECRET, CDP_WALLET_SECRET — the attester's
+  //                           own CDP project, read only under CEREMONY_SIGNER
+  //                           "cdp".
 }

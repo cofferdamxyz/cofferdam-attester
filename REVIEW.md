@@ -6,7 +6,8 @@ Read with `AGENTS.md` and `README.md`. All of this repository is **high risk**: 
 
 - A path to `signBind`, `signRebind` or `signCeremony` that skips or weakens the Celo gate (`celoGate.ts`) or the ceremony's checks, or signs a message whose fields the gate did not check.
 - A reachable surface other than the `cofferdam-api` service binding: `workers_dev` on, `preview_urls` on or unset, a route, a `fetch` handler that does more than refuse.
-- A key (`ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY`) or a signature logged, returned in an error, or present in `wrangler.jsonc`, a test or a doc.
+- A key (`ATTESTER_PRIVATE_KEY`, `CEREMONY_ATTESTER_PRIVATE_KEY`, the CDP secrets `CDP_API_KEY_SECRET` and `CDP_WALLET_SECRET`), CDP's own `errorMessage` or a signature logged, returned in an error, or present in `wrangler.jsonc`, a test or a doc.
+- Under `CEREMONY_SIGNER=cdp`, any path that signs with the raw key, signs EIP-191, or accepts a CDP signature that does not recover to `CEREMONY_CDP_ADDRESS` (workspace decision 0090 items 5, 9 and 12).
 - A development or staging shortcut reachable when `ENVIRONMENT` says otherwise.
 - An RPC shape change without `README.md`, the caller in `cofferdam-api` and the workspace `docs/architecture/plane.md` in the same pass.
 
