@@ -199,7 +199,8 @@ describe('ceremonySigner under cdp', () => {
 
   it.each([
     [new CdpApiError(403, 'policy_violation', 'c-1', `rejected: verifyingContract ${REGISTRY}`), 'CDP_REFUSED', false],
-    [new CdpApiError(401, 'unauthorized', 'c-2', 'revoked key'), 'CDP_REFUSED', false],
+    [new CdpApiError(401, 'unauthorized', 'c-2', 'revoked key'), 'BAD_ATTESTER_KEY', false],
+    [new CdpApiError(404, 'not_found', 'c-4', 'no such account'), 'BAD_ATTESTER_KEY', false],
     [new CdpApiError(503, 'service_unavailable', 'c-3', 'upstream'), 'CDP_UNAVAILABLE', true],
     [new CdpApiError(429, 'rate_limit_exceeded', undefined, 'slow down'), 'CDP_UNAVAILABLE', true],
     [new CdpApiError(0, 'timeout', undefined, ''), 'CDP_UNAVAILABLE', true],

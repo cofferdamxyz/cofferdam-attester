@@ -6,7 +6,8 @@
  * runbook `docs/runbooks/cdp-setup.md`, E7), mirroring the plane's hot
  * signers (`cofferdam-api/src/services/hotSigner.ts`, E4):
  *
- *   CEREMONY_SIGNER   `key` (default): `CEREMONY_ATTESTER_PRIVATE_KEY`
+ *   CEREMONY_SIGNER   `key` (default, also when unset or empty, as the
+ *                     plane reads its switches): `CEREMONY_ATTESTER_PRIVATE_KEY`
  *                     `cdp`: the `ceremony-attester` account of the attester's
  *                     own CDP project, `CEREMONY_CDP_ADDRESS`, with the
  *                     secrets `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` and
@@ -27,12 +28,17 @@
  * `correlationId` only (`CdpApiError.message`), never CDP's own message,
  * which can quote the request:
  *
- *   no answer, 429, 5xx      `CDP_UNAVAILABLE` (retryable)
- *   any other refusal        `CDP_REFUSED` (a policy, a revoked key)
- *   a signature not the      `CDP_BAD_SIGNATURE`
- *   account's, or malformed
+ *   no answer, 429, 5xx      `CDP_UNAVAILABLE` (retryable; the plane's 503)
+ *   401, 404                 `BAD_ATTESTER_KEY`: a revoked or wrong API key,
+ *                            or an account not in the project, is not
+ *                            configured (the plane's 503)
+ *   any other refusal        `CDP_REFUSED` (a policy refusal; the plane's 502)
+ *   a signature of the wrong `CDP_BAD_SIGNATURE`
+ *   shape, or not the
+ *   account's
  *   a secret that will not   `BAD_ATTESTER_KEY`
  *   import
+ *   anything else            `CDP_SIGN_FAILED`, by the error's name only
  */
 
 import { getAddress, hashTypedData, isAddress, isHex, type Address, type Hex } from 'viem';
@@ -132,8 +138,11 @@ interface CdpFailure {
 
 function cdpFailureOf(err: unknown): CdpFailure {
   if (err instanceof CdpApiError) {
+    // A revoked or wrong key (401), or an account the project does not hold
+    // (404), is the operator's to fix: not configured, like a missing secret.
+    const notConfigured = err.status === 401 || err.status === 404;
     return {
-      code: err.retryable ? 'CDP_UNAVAILABLE' : 'CDP_REFUSED',
+      code: err.retryable ? 'CDP_UNAVAILABLE' : notConfigured ? 'BAD_ATTESTER_KEY' : 'CDP_REFUSED',
       retryable: err.retryable,
       // `CdpApiError.message` names the status, the type and the correlation id only.
       detail: err.message,

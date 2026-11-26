@@ -118,8 +118,10 @@ describe('auth (copied from the plane)', () => {
     await expect(importApiKeySecret(b64(new Uint8Array(32)))).rejects.toThrow(/64 bytes/);
     const err = await importApiKeySecret('c2VjcmV0LXRoYXQtbXVzdC1ub3QtbGVhaw==').catch((e: Error) => e);
     expect(String(err)).not.toContain('c2VjcmV0');
-    const client = createCdpClient({ ...creds, walletSecret: b64(new Uint8Array(40)) }, { fetch: fakeCdp(() => json({})).fetchFn });
+    const cdp = fakeCdp(() => json({}));
+    const client = createCdpClient({ ...creds, walletSecret: b64(new Uint8Array(40)) }, { fetch: cdp.fetchFn });
     await expect(client.signTypedData(ACCOUNT.address, TYPED)).rejects.toThrow(/P-256/);
+    expect(cdp.seen).toHaveLength(0);
   });
 });
 

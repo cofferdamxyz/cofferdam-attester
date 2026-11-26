@@ -76,7 +76,7 @@ export interface Env {
 
   /**
    * Who signs the ceremony co-sign (workspace decision 0090, E7;
-   * `src/ceremonySigner.ts`): `key` (the default when unset,
+   * `src/ceremonySigner.ts`): `key` (the default when unset or empty,
    * `CEREMONY_ATTESTER_PRIVATE_KEY`) or `cdp` (the attester project's
    * `ceremony-attester` account, `CEREMONY_CDP_ADDRESS`, with the three CDP
    * secrets). Any other value, or `cdp` without its address or a well-formed
