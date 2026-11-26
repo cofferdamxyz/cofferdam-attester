@@ -161,7 +161,14 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
    * which is never the Self bind key.
    */
   async signCeremony(req: SignCeremonyRequest): Promise<SignCeremonyResponse> {
-    const prepared = prepareCeremonyRequest({ chainIdStr: this.env.BASE_CHAIN_ID }, req);
+    const prepared = prepareCeremonyRequest(
+      {
+        chainIdStr: this.env.BASE_CHAIN_ID,
+        signatureStr: this.env.CEREMONY_SIGNATURE,
+        registryStr: this.env.CEREMONY_REGISTRY_ADDRESS,
+      },
+      req,
+    );
     assertPrivateKey(this.env.CEREMONY_ATTESTER_PRIVATE_KEY, 'CEREMONY_ATTESTER_PRIVATE_KEY');
     const signed = await signCeremonyAttestation(this.env.CEREMONY_ATTESTER_PRIVATE_KEY, prepared);
 
@@ -172,6 +179,8 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
         kind: 'attester.signCeremony',
         environment: this.env.ENVIRONMENT,
         chainId: prepared.chainIdStr,
+        signatureForm: prepared.form,
+        registry: prepared.registry,
         account: prepared.account,
         action: prepared.actionName,
         newKeyHash: prepared.newKeyHash,
@@ -188,6 +197,8 @@ export default class CofferdamAttester extends WorkerEntrypoint<Env> implements 
       attesterAddress: signed.attesterAddress,
       messageHash: signed.messageHash,
       signature: signed.signature,
+      signatureForm: prepared.form,
+      registry: prepared.registry,
       chainId: prepared.chainIdStr,
       account: prepared.account,
       action: prepared.actionName,

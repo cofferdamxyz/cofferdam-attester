@@ -60,6 +60,19 @@
     // base-contracts/scripts/rotate-self-attester.ts.
     "NULLIFIER_REGISTRY_ADDRESS": "0xF025204964A355D3125CF15Bd606B8CFc92FbDB6",
 
+    // ── Ceremony co-sign (decisions 0016 and 0090 item 5) ───────
+    // The form the accounts of this chain's generation verify. Base Sepolia's
+    // deployed generation verifies EIP-191 over the earlier ceremonyHash;
+    // the production generation (decision 0080) and the next Sepolia one
+    // verify the EIP-712 CeremonyAttestation, so this flips to "eip712" with
+    // CEREMONY_REGISTRY_ADDRESS when that generation deploys here.
+    "CEREMONY_SIGNATURE": "eip191",
+    // The generation's CofferdamCeremonyAttesterRegistry: the EIP-712
+    // verifyingContract, and the registry every request must name. MUST stay
+    // identical to the chain's CofferdamCeremonyAttesterRegistry in
+    // cofferdam-api/src/chain/deployments.ts.
+    "CEREMONY_REGISTRY_ADDRESS": "0x44A2B59d5D39f773C2e65469e0Dd3217E53823Af",
+
     // ── Celo bind gate ──────────────────────────────────────────
     // Self.xyz anchors its identity-commitment tree and OFAC roots on Celo
     // mainnet. Before signing, the attester confirms over read-only

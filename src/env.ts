@@ -55,6 +55,23 @@ export interface Env {
    */
   SELF_PASSPORT_REGISTRY_ADDRESS: string;
 
+  /**
+   * How this Worker signs ceremony co-signs (workspace decision 0090 item 5):
+   * `eip712` for the production account generation of decision 0080 on (the
+   * typed `CeremonyAttestation`), `eip191` for Base Sepolia's deployed
+   * generation only, until the next Sepolia generation replaces it. Anything
+   * else refuses every `signCeremony`. Never chosen by a request.
+   */
+  CEREMONY_SIGNATURE: string;
+
+  /**
+   * EIP-55 address of the generation's `CofferdamCeremonyAttesterRegistry`:
+   * the EIP-712 domain's `verifyingContract`, and the registry a request must
+   * name. Must equal the `CofferdamCeremonyAttesterRegistry` of the chain's
+   * table in `cofferdam-api/src/chain/deployments.ts`.
+   */
+  CEREMONY_REGISTRY_ADDRESS: string;
+
   // ── secrets (set via `wrangler secret put NAME`) ────────────────
 
   /**
